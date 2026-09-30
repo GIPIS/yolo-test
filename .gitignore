@@ -13,6 +13,9 @@ datasets/
 diff.diff
 commit.txt
 
+# Dataset configurations
+configs/
+
 # Directory tree of the repo
 # Usage:
 #   tree -L 3 -I "node_modules|venv|datasets|runs" > tree.txt
