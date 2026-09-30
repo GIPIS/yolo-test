@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,7 @@ class BenchmarkConfig:
     fraction: float
     warmup_iterations: int
     iterations: int
+    train_options: dict[str, Any] = field(default_factory=dict)
     conf: float = 0.25
     iou: float = 0.7
 
@@ -67,6 +68,17 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
             raise ValueError(f"{field} must be a positive integer")
     if not 0 < float(raw.get("fraction", 1.0)) <= 1:
         raise ValueError("fraction must be in (0, 1]")
+    train_options = raw.get("train_options", {})
+    if not isinstance(train_options, dict) or any(not isinstance(key, str) for key in train_options):
+        raise ValueError("train_options must be a YAML mapping of Ultralytics train argument names to values")
+    reserved_train_options = {
+        "data", "epochs", "imgsz", "batch", "device", "amp", "workers", "optimizer", "lr0", "seed",
+        "deterministic", "fraction", "pretrained", "project", "name", "exist_ok", "plots", "verbose",
+        "cache", "val", "save", "save_period",
+    }
+    conflicts = sorted(reserved_train_options.intersection(train_options))
+    if conflicts:
+        raise ValueError(f"train_options cannot override top-level training config fields: {', '.join(conflicts)}")
     path_fields = {key: Path(str(raw[key])).expanduser() for key in ("dataset_yaml", "data_root", "runs_dir")}
     # Relative paths are interpreted from the repository, not the caller's cwd.
     for key, value in path_fields.items():
@@ -79,5 +91,6 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
         amp=bool(raw.get("amp", True)), optimizer=str(raw.get("optimizer", "SGD")), lr0=float(raw.get("lr0", 0.01)),
         seed=int(raw.get("seed", 17)), fraction=float(raw.get("fraction", 1.0)),
         warmup_iterations=int(raw.get("warmup_iterations", 20)), iterations=int(raw.get("iterations", 100)),
+        train_options=train_options,
         conf=float(raw.get("conf", 0.25)), iou=float(raw.get("iou", 0.7)),
     )

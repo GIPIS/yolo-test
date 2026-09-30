@@ -34,13 +34,15 @@ def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, A
     reset_peak_memory(device)
     started = time.perf_counter()
     try:
-        result = model.train(
-            data=str(config.dataset_yaml), epochs=config.epochs, imgsz=config.imgsz, batch=config.batch,
-            device=device, amp=config.amp, workers=config.workers, optimizer=config.optimizer, lr0=config.lr0,
-            seed=config.seed, deterministic=True, fraction=config.fraction, pretrained=config.pretrained,
-            project=str(output_dir.parent), name=output_dir.name, exist_ok=True, plots=True,
-            verbose=True, cache=False, val=True, save=True, save_period=1,
-        )
+        train_args = {
+            "data": str(config.dataset_yaml), "epochs": config.epochs, "imgsz": config.imgsz, "batch": config.batch,
+            "device": device, "amp": config.amp, "workers": config.workers, "optimizer": config.optimizer, "lr0": config.lr0,
+            "seed": config.seed, "deterministic": True, "fraction": config.fraction, "pretrained": config.pretrained,
+            "project": str(output_dir.parent), "name": output_dir.name, "exist_ok": True, "plots": True,
+            "verbose": True, "cache": False, "val": True, "save": True, "save_period": 1,
+        }
+        train_args.update(config.train_options)
+        result = model.train(**train_args)
     except Exception as exc:
         if "out of memory" in str(exc).lower() or "hiperroroutofmemory" in str(exc).lower():
             raise RuntimeError(f"FAILED: CUDA/HIP out of memory; model={config.model}, batch={config.batch}, imgsz={config.imgsz}. Parameters were not changed.") from exc
@@ -54,6 +56,10 @@ def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, A
     parameters = sum(parameter.numel() for parameter in model.model.parameters())
     dataset_size = _count_training_images(config)
     try:
+        dataset_metadata = yaml.safe_load(config.dataset_yaml.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        dataset_metadata = {}
+    try:
         images_per_second = dataset_size * config.fraction * config.epochs / elapsed if dataset_size else None
     except ZeroDivisionError:
         images_per_second = None
@@ -65,7 +71,9 @@ def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, A
             "batch": config.batch, "imgsz": config.imgsz, "epochs": config.epochs, "amp": config.amp,
             "optimizer": config.optimizer, "lr0": config.lr0, "dataset_yaml": str(config.dataset_yaml),
             "dataset_size_images": dataset_size, "dataset_fraction": config.fraction,
-            "dataset_version": "synthetic-smoke" if config.mode == "smoke" else "COCO 2017",
+            "dataset_version": dataset_metadata.get(
+                "dataset_name", "synthetic-smoke" if config.mode == "smoke" else config.dataset_yaml.stem
+            ),
             "accuracy": metrics, "gpu_memory": memory_stats(device),
             "ultralytics_run_dir": str(actual_dir)}
 

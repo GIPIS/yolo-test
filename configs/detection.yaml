@@ -1,0 +1,26 @@
+# Generic single-dataset training/benchmark configuration.
+# Replace dataset_yaml/data_root with the generated YOLO dataset config/root.
+mode: benchmark
+model: yolo26n.pt
+pretrained: true
+dataset_yaml: ./datasets/prepared/dataset.yaml
+data_root: ./datasets/prepared
+runs_dir: ${RUNS_DIR:-./runs}
+imgsz: 640
+batch: 4
+epochs: 5
+workers: 4
+device: 0
+allow_cpu: false
+amp: false
+optimizer: SGD
+lr0: 0.01
+seed: 17
+fraction: 1.0
+warmup_iterations: 20
+iterations: 100
+conf: 0.25
+iou: 0.7
+# Optional additional Ultralytics augmentation/preprocessing arguments.
+# Set values explicitly when reproducibility across library versions matters.
+train_options: {}

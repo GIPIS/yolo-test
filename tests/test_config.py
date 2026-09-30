@@ -11,6 +11,20 @@ def test_load_smoke_config():
     assert config.batch == 2
     assert config.allow_cpu is True
     assert config.dataset_yaml.is_absolute()
+    assert config.train_options == {}
+
+
+def test_training_options_are_loaded_and_cannot_override_core_settings(tmp_path):
+    config_path = Path(__file__).parents[1] / "configs" / "mbdd2025.yaml"
+    config = load_config(config_path)
+    assert config.train_options["mosaic"] == 1.0
+    assert config.train_options["hsv_h"] == 0.015
+
+    text = config_path.read_text(encoding="utf-8").replace("  mosaic: 1.0", "  epochs: 99")
+    bad_config = tmp_path / "bad-training-options.yaml"
+    bad_config.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot override top-level"):
+        load_config(bad_config)
 
 
 def test_reject_invalid_mode(tmp_path):

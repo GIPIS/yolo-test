@@ -50,7 +50,29 @@ python scripts/download_dataset.py --root "$COCO_DATA_DIR" --splits train val --
 python scripts/prepare_dataset.py --root "$COCO_DATA_DIR"
 ```
 
-The download utility fetches the requested COCO image zips and Ultralytics' COCO2017 label archive, then writes a YOLO dataset YAML. Ultralytics training consumes its supported YOLO-format labels; the project avoids implicit conversion/downloads at training time. Review COCO's terms and cite the dataset when publishing results. For a genuine COCO workload, include both `train` and `val` splits.
+The download utility fetches the requested COCO image zips and Ultralytics' COCO2017 label archive. Ultralytics training consumes YOLO-format labels; this project avoids implicit conversion/downloads at training time. Review COCO's terms and cite the dataset when publishing results. For a genuine COCO workload, include both `train` and `val` splits.
+
+### Config-driven dataset preparation
+
+Dataset preparation has no dataset-specific switches or hardcoded class list. Pass a YAML config containing source image and YOLO label directories, the output path, class names, validation fraction, seed, and whether to symlink or copy files:
+
+```sh
+python scripts/prepare_dataset.py --config configs/dataset_mbdd2025.yaml
+```
+
+The checked-in config is an example for MBDD2025: its local README describes 14,471 UAV images and five defect classes, and the supplied label `.txt` files are already YOLO detection labels. This config sets the class names and source paths as user data rather than code constants. Other datasets use their own preparation YAML and training config. Training requires images plus matching YOLO detection text labels (normalized `class_id x_center y_center width height`) and a names list whose order matches the label class IDs. Raw VOC XML, COCO JSON, segmentation labels, or classification-only folder layouts are not auto-converted; convert them to the configured YOLO detection format first or add an explicit format adapter.
+
+Training is likewise selected by a YAML argument, e.g. `python scripts/train.py --config configs/mbdd2025.yaml`. Common choices (model, dataset YAML, image size, batch, epochs, optimizer, learning rate, seed, workers, AMP and fraction) are top-level settings. Additional Ultralytics preprocessing/augmentation settings such as color, flips, mosaic, mixup, crop/geometry and multi-scale can be passed under `train_options`; they are forwarded as Ultralytics `model.train()` options and saved with the run config. Top-level controlled settings cannot be overridden there. No class-specific tuning is inferred automatically. Any options omitted from the YAML use the installed Ultralytics version's defaults, so pin/record that version when comparing runs.
+
+For a new dataset, use the generic starter at `configs/detection.yaml`, set `dataset_yaml` and `data_root` to the prepared dataset, then pass it as the script argument: `python scripts/train.py --config configs/detection.yaml`. The script and core dataset utilities contain no dataset name/class assumptions; dataset class names and source layout belong in the respective dataset YAML files. The data adapter currently targets object-detection datasets already represented by YOLO `.txt` boxes; it does not infer labels or convert arbitrary annotation formats automatically.
+
+Preparation creates a deterministic image-level train/validation split using symlinks by default (or copies if `link_files: false`), plus `dataset.yaml` and `split_manifest.json`. The split config is idempotent: repeating the same config validates and reuses a matching output; changed settings refuse to overwrite it. The training config at `configs/mbdd2025.yaml` uses pretrained YOLO26n, 640px images, batch 4, five epochs, and requires the configured GPU. First confirm the dataset validates, then run:
+
+```sh
+python scripts/train.py --config configs/mbdd2025.yaml
+```
+
+This short run checks end-to-end loading/training/validation; it is not enough to claim converged accuracy. Then increase epochs and benchmark only selected settings using `scripts/benchmark_training.py --config configs/mbdd2025.yaml --models yolo26n.pt yolo26s.pt --imgsz 640 --batches 1 4 8`. The MBDD2025 dataset README cites CC BY 4.0; preserve attribution and follow its citation. Its prepared split is image-random because no official split is present in the local README. UAV imagery may contain adjacent/near-duplicate frames, so use acquisition/building-level grouping if metadata permits before treating validation accuracy as a reliable generalization estimate.
 
 A deterministic tiny fixture (4 train / 2 validation images) is generated locally and needs Pillow, not COCO:
 

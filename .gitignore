@@ -9,3 +9,18 @@ runs/**
 datasets/
 *.pt
 *.onnx
+
+# Directory tree of the repo
+# Usage:
+#   tree -L 3 -I "node_modules|venv|datasets|runs" > tree.txt
+tree.txt
+
+# Repo changes to generate commit messages
+# Usage:
+#   git diff > diff.diff
+*.diff
+
+# Commit message
+# Usage:
+#   git commit -F commit.txt
+commit.txt
