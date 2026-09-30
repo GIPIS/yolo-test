@@ -40,39 +40,41 @@ Run `python scripts/check_environment.py`. The command reports OS/kernel/CPU/mem
 
 ## Dataset setup
 
-No dataset is downloaded implicitly by these project commands. COCO 2017 needs substantial storage (train images alone are about 19 GB; train + validation images around 20 GB plus extracted labels). Set `COCO_DATA_DIR` to the target directory or use `--root` explicitly.
+No dataset is downloaded implicitly. Organize a custom object-detection dataset as matching image and YOLO label files: each image needs a `.txt` file with the same stem. Each non-empty label line must be `class_id x_center y_center width height`; coordinates are normalized to the range $[0,1]$. Empty label files represent images with no objects. Class IDs must be zero-based and match the order of `classes` in the preparation config. This pipeline does not infer classes or automatically convert VOC XML, COCO JSON, segmentation masks, or classification folders to detection labels. Convert those inputs to YOLO detection labels first, or add a format-specific adapter.
+
+### Prepare a new dataset from YOLO labels
+
+1. Put raw data in directories, for example `datasets/source/images/` and `datasets/source/labels/`. Image/label names must match by stem.
+2. Edit [configs/dataset.yaml](configs/dataset.yaml): set `source_images`, `source_labels`, and `output` (paths are relative to that YAML file); set `classes` in the same order as the IDs in label files; choose `validation_fraction`, `seed`, and `link_files`.
+3. Prepare and validate the train/validation split:
+
+   ```sh
+   python scripts/prepare_dataset.py --config configs/dataset.yaml
+   ```
+
+   The output includes `dataset.yaml`, a split manifest, and `images/` / `labels/` train-validation directories. Symlinks are used by default to avoid duplicating large image collections; set `link_files: false` to copy files. Re-running the same config validates and reuses the split. Changed config values never overwrite a non-matching existing output.
+
+### Use an already prepared dataset
+
+If the dataset already has train/validation image folders and matching YOLO labels, you can skip split preparation. Point `dataset_yaml` in [configs/detection.yaml](configs/detection.yaml) to its Ultralytics dataset YAML and set `data_root` accordingly. COCO 2017 is available through the explicit download command below; train images are about 19 GB, so training data download requires an opt-in flag:
 
 ```sh
-export COCO_DATA_DIR=/data/coco
-python scripts/download_dataset.py --root "$COCO_DATA_DIR" --splits val
-# Training download is large; opt in explicitly:
-python scripts/download_dataset.py --root "$COCO_DATA_DIR" --splits train val --confirm-large-download
-python scripts/prepare_dataset.py --root "$COCO_DATA_DIR"
+python scripts/download_dataset.py --root datasets/coco --splits train val --confirm-large-download
 ```
 
-The download utility fetches the requested COCO image zips and Ultralytics' COCO2017 label archive. Ultralytics training consumes YOLO-format labels; this project avoids implicit conversion/downloads at training time. Review COCO's terms and cite the dataset when publishing results. For a genuine COCO workload, include both `train` and `val` splits.
+The downloader writes `datasets/coco/coco.yaml`. Set `dataset_yaml: ./datasets/coco/coco.yaml` and `data_root: ./datasets/coco` in the training config. Follow the dataset's terms and cite it when publishing results.
 
-### Config-driven dataset preparation
+### Configure and train
 
-Dataset preparation has no dataset-specific switches or hardcoded class list. Pass a YAML config containing source image and YOLO label directories, the output path, class names, validation fraction, seed, and whether to symlink or copy files:
+Training is also driven by YAML. [configs/detection.yaml](configs/detection.yaml) is a generic starting point: set its dataset YAML and root, then configure model, pretrained weights, image size, batch size, epochs, optimizer, learning rate, seed, workers, AMP, and data fraction. Additional Ultralytics image transforms/augmentations (for example color jitter, flips, mosaic, mixup, and geometry) are passed under `train_options`. No values are automatically tuned by dataset content; omitted options use defaults from the installed Ultralytics version.
+
+Run training with the config path as an argument:
 
 ```sh
-python scripts/prepare_dataset.py --config configs/dataset_mbdd2025.yaml
+python scripts/train.py --config configs/detection.yaml
 ```
 
-The checked-in config is an example for MBDD2025: its local README describes 14,471 UAV images and five defect classes, and the supplied label `.txt` files are already YOLO detection labels. This config sets the class names and source paths as user data rather than code constants. Other datasets use their own preparation YAML and training config. Training requires images plus matching YOLO detection text labels (normalized `class_id x_center y_center width height`) and a names list whose order matches the label class IDs. Raw VOC XML, COCO JSON, segmentation labels, or classification-only folder layouts are not auto-converted; convert them to the configured YOLO detection format first or add an explicit format adapter.
-
-Training is likewise selected by a YAML argument, e.g. `python scripts/train.py --config configs/mbdd2025.yaml`. Common choices (model, dataset YAML, image size, batch, epochs, optimizer, learning rate, seed, workers, AMP and fraction) are top-level settings. Additional Ultralytics preprocessing/augmentation settings such as color, flips, mosaic, mixup, crop/geometry and multi-scale can be passed under `train_options`; they are forwarded as Ultralytics `model.train()` options and saved with the run config. Top-level controlled settings cannot be overridden there. No class-specific tuning is inferred automatically. Any options omitted from the YAML use the installed Ultralytics version's defaults, so pin/record that version when comparing runs.
-
-For a new dataset, use the generic starter at `configs/detection.yaml`, set `dataset_yaml` and `data_root` to the prepared dataset, then pass it as the script argument: `python scripts/train.py --config configs/detection.yaml`. The script and core dataset utilities contain no dataset name/class assumptions; dataset class names and source layout belong in the respective dataset YAML files. The data adapter currently targets object-detection datasets already represented by YOLO `.txt` boxes; it does not infer labels or convert arbitrary annotation formats automatically.
-
-Preparation creates a deterministic image-level train/validation split using symlinks by default (or copies if `link_files: false`), plus `dataset.yaml` and `split_manifest.json`. The split config is idempotent: repeating the same config validates and reuses a matching output; changed settings refuse to overwrite it. The training config at `configs/mbdd2025.yaml` uses pretrained YOLO26n, 640px images, batch 4, five epochs, and requires the configured GPU. First confirm the dataset validates, then run:
-
-```sh
-python scripts/train.py --config configs/mbdd2025.yaml
-```
-
-This short run checks end-to-end loading/training/validation; it is not enough to claim converged accuracy. Then increase epochs and benchmark only selected settings using `scripts/benchmark_training.py --config configs/mbdd2025.yaml --models yolo26n.pt yolo26s.pt --imgsz 640 --batches 1 4 8`. The MBDD2025 dataset README cites CC BY 4.0; preserve attribution and follow its citation. Its prepared split is image-random because no official split is present in the local README. UAV imagery may contain adjacent/near-duplicate frames, so use acquisition/building-level grouping if metadata permits before treating validation accuracy as a reliable generalization estimate.
+For GPU benchmarking, verify the configured GPU first; the generic config defaults to `device: 0` and forbids CPU fallback. To deliberately run training on CPU, set `device: cpu` and `allow_cpu: true` in a separate config (or pass `--allow-cpu`). A short run validates the workflow but does not establish convergence. For performance studies, select specific cases rather than running a full matrix, e.g. `python scripts/benchmark_training.py --config configs/detection.yaml --models yolo26n.pt yolo26s.pt --imgsz 640 --batches 1 4 8`.
 
 A deterministic tiny fixture (4 train / 2 validation images) is generated locally and needs Pillow, not COCO:
 
@@ -118,7 +120,7 @@ Inference does GPU synchronization around each measured call, separates configur
 
 ## Results and reproducibility
 
-Each run folder under `runs/` contains a copied source YAML, normalized `config.json`, `environment.json`, `results.json`, and `benchmark_summary.md`; training adds `training_metrics.csv`, Ultralytics plots and `weights/`. Benchmark matrices store one record per case in `benchmark.json`. Values include commit (if available), timestamp, OS/kernel, Python, PyTorch/HIP, Ultralytics, GPU, model/checkpoint, dataset path/fraction, image size, batch, optimizer, learning rate, epochs, AMP and seed. The COCO dataset directory and source YAML are recorded; data itself is not copied into experiment artifacts.
+Each run folder under `runs/` contains a copied source YAML, normalized `config.json`, `environment.json`, `results.json`, and `benchmark_summary.md`; training adds `training_metrics.csv`, Ultralytics plots and `weights/`. Benchmark matrices store one record per case in `benchmark.json`. Values include commit (if available), timestamp, OS/kernel, Python, PyTorch/HIP, Ultralytics, GPU, model/checkpoint, configured dataset path and fraction, image size, batch, optimizer, learning rate, epochs, AMP and seed. Dataset files are not copied into experiment artifacts.
 
 ## Inference abstraction and export
 

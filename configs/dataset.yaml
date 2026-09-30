@@ -1,0 +1,11 @@
+# Generic object-detection dataset preparation template.
+# Paths are relative to this file. Match each image stem to a YOLO .txt label stem.
+dataset_name: custom-detection
+source_images: ../datasets/source/images
+source_labels: ../datasets/source/labels
+output: ../datasets/prepared
+classes:
+  - class_0
+validation_fraction: 0.2
+seed: 17
+link_files: true
