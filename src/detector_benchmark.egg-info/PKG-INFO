@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: detector-benchmark
+Version: 0.1.0
+Summary: Reproducible object-detection benchmarks for AMD ROCm GPUs
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: PyYAML>=6.0
+Provides-Extra: benchmark
+Requires-Dist: ultralytics>=8.3; extra == "benchmark"
+Requires-Dist: Pillow>=10; extra == "benchmark"
+Requires-Dist: psutil>=5.9; extra == "benchmark"
+Provides-Extra: test
+Requires-Dist: pytest>=8; extra == "test"
+Dynamic: license-file

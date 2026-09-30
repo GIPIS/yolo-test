@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "detector-benchmark"
+version = "0.1.0"
+description = "Reproducible object-detection benchmarks for AMD ROCm GPUs"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+benchmark = ["ultralytics>=8.3", "Pillow>=10", "psutil>=5.9"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = ["gpu: requires a working PyTorch ROCm/CUDA-visible GPU"]
