@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from detector_benchmark.artifacts import run_name, write_json
-from detector_benchmark.benchmarking import environment_record
+from detector_benchmark.benchmarking import environment_record, release_gpu_memory
 from detector_benchmark.config import load_config
 from detector_benchmark.hardware import require_gpu
 from detector_benchmark.reporting import write_summary
@@ -28,7 +28,7 @@ def main() -> int:
     args = parser.parse_args()
     config = load_config(args.config)
     env = environment_record()
-    root = config.runs_dir / run_name("training-matrix")
+    root = config.runs_dir / run_name("training-matrix", tag=config.run_tag)
     root_created = False
     try:
         root.mkdir(parents=True)
@@ -41,7 +41,7 @@ def main() -> int:
             for imgsz in args.imgsz or [config.imgsz]:
                 for batch in args.batches or [config.batch]:
                     case = replace(config, model=model, imgsz=imgsz, batch=batch, epochs=args.epochs or config.epochs)
-                    case_dir = root / run_name(f"{Path(model).stem}-{imgsz}-{batch}")
+                    case_dir = root / run_name(f"{Path(model).stem}-{imgsz}-{batch}", tag=config.run_tag)
                     case_dir.mkdir()
                     write_json(case_dir / "config.json", {**case.to_dict(), "device_used": device})
                     try:
@@ -49,6 +49,8 @@ def main() -> int:
                     except Exception as exc:
                         oom = "out of memory" in str(exc).lower() or "hiperroroutofmemory" in str(exc).lower()
                         result = {"status": "FAILED", "reason": "CUDA/HIP out of memory" if oom else str(exc), "model": model, "batch": batch, "imgsz": imgsz}
+                    finally:
+                        release_gpu_memory(device)
                     write_json(case_dir / "results.json", result)
                     records.append(result)
                     write_json(root / "benchmark.json", {"status": "completed" if all(item["status"] == "completed" for item in records) else "FAILED", "results": records})

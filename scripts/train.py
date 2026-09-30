@@ -23,7 +23,7 @@ def main() -> int:
     args = parser.parse_args()
     config = load_config(args.config)
     env = environment_record()
-    name = run_name(config.model)
+    name = run_name(config.model, tag=config.run_tag)
     run_dir = config.runs_dir / name
     run_created = False
     try:
@@ -33,6 +33,7 @@ def main() -> int:
         write_json(run_dir / "config.json", {**config.to_dict(), "git_commit": git_commit(), "device_requested": config.device})
         write_json(run_dir / "environment.json", env)
         device = require_gpu(env, allow_cpu=args.allow_cpu or config.allow_cpu, requested_device=config.device)
+        # Keep the earlier device_requested record and add the resolved device_used value.
         write_json(run_dir / "config.json", {**config.to_dict(), "git_commit": git_commit(), "device_used": device})
         metrics = train(config, run_dir, device)
         write_json(run_dir / "results.json", metrics)

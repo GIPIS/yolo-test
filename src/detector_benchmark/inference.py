@@ -11,9 +11,9 @@ class Detector(ABC):
     def load(self) -> None: ...
 
     @abstractmethod
-    def predict(self, image: str | Path, **kwargs: Any) -> Any: ...
+    def predict(self, image: Any, **kwargs: Any) -> Any: ...
 
-    def batch_predict(self, images: Sequence[str | Path], **kwargs: Any) -> Any:
+    def batch_predict(self, images: Sequence[Any], **kwargs: Any) -> Any:
         return self.predict(list(images), **kwargs)
 
 
@@ -30,7 +30,7 @@ class UltralyticsDetector(Detector):
             raise RuntimeError("Install the 'benchmark' extra before using YOLO inference: pip install -e '.[benchmark]'") from exc
         self.model = YOLO(self.checkpoint)
 
-    def predict(self, image: str | Path | Sequence[str | Path], **kwargs: Any) -> Any:
+    def predict(self, image: Any, batch: int = 1, **kwargs: Any) -> Any:
         if self.model is None:
             self.load()
-        return self.model.predict(source=image, device=self.device, verbose=False, **kwargs)
+        return self.model.predict(source=image, device=self.device, batch=batch, verbose=False, **kwargs)

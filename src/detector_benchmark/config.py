@@ -32,6 +32,10 @@ class BenchmarkConfig:
     warmup_iterations: int
     iterations: int
     train_options: dict[str, Any] = field(default_factory=dict)
+    save_period: int = -1
+    plots: bool = True
+    deterministic: bool = True
+    run_tag: str = "amd_rx6800"
     conf: float = 0.25
     iou: float = 0.7
 
@@ -68,6 +72,15 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
             raise ValueError(f"{field} must be a positive integer")
     if not 0 < float(raw.get("fraction", 1.0)) <= 1:
         raise ValueError("fraction must be in (0, 1]")
+    save_period = raw.get("save_period", -1)
+    if isinstance(save_period, bool) or not isinstance(save_period, int) or save_period < -1:
+        raise ValueError("save_period must be an integer greater than or equal to -1")
+    for field_name in ("plots", "deterministic"):
+        if field_name in raw and not isinstance(raw[field_name], bool):
+            raise ValueError(f"{field_name} must be a boolean")
+    run_tag = raw.get("run_tag", "amd_rx6800")
+    if not isinstance(run_tag, str) or not run_tag.strip():
+        raise ValueError("run_tag must be a non-empty string")
     train_options = raw.get("train_options", {})
     if not isinstance(train_options, dict) or any(not isinstance(key, str) for key in train_options):
         raise ValueError("train_options must be a YAML mapping of Ultralytics train argument names to values")
@@ -92,5 +105,7 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
         seed=int(raw.get("seed", 17)), fraction=float(raw.get("fraction", 1.0)),
         warmup_iterations=int(raw.get("warmup_iterations", 20)), iterations=int(raw.get("iterations", 100)),
         train_options=train_options,
+        save_period=save_period, plots=raw.get("plots", True), deterministic=raw.get("deterministic", True),
+        run_tag=run_tag,
         conf=float(raw.get("conf", 0.25)), iou=float(raw.get("iou", 0.7)),
     )

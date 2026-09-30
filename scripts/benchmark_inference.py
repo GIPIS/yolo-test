@@ -11,7 +11,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from detector_benchmark.artifacts import run_name, write_json
-from detector_benchmark.benchmarking import environment_record, memory_stats, reset_peak_memory, synchronize
+from detector_benchmark.benchmarking import (
+    environment_record,
+    mean_result_phase_times,
+    memory_stats,
+    preload_images,
+    release_gpu_memory,
+    reset_peak_memory,
+    synchronize,
+)
 from detector_benchmark.config import load_config
 from detector_benchmark.datasets import list_images
 from detector_benchmark.hardware import require_gpu
@@ -27,10 +35,11 @@ def main() -> int:
     parser.add_argument("--imgsz", type=int, action="append", help="repeat for selected resolutions")
     parser.add_argument("--batches", type=int, nargs="+", help="selected batch sizes (no automatic matrix)")
     parser.add_argument("--allow-cpu", action="store_true")
+    parser.add_argument("--preload", action="store_true", help="decode benchmark input images into memory before timing")
     args = parser.parse_args()
     config = load_config(args.config)
     env = environment_record()
-    output = config.runs_dir / run_name("inference-" + config.model)
+    output = config.runs_dir / run_name("inference-" + config.model, tag=config.run_tag)
     output_created = False
     try:
         output.mkdir(parents=True)
@@ -47,38 +56,56 @@ def main() -> int:
                 for batch in args.batches or [config.batch]:
                     if batch < 1:
                         raise ValueError("batch sizes must be positive")
-                    detector = UltralyticsDetector(model_name, device)
-                    detector.load()
-                    model_parameters = sum(parameter.numel() for parameter in detector.model.model.parameters())
-                    samples: dict[str, list[float]] = {key: [] for key in ("preprocess", "inference", "postprocess", "total")}
-                    reset_peak_memory(device)
+                    detector = None
+                    case_batches = []
+                    image_cache = {}
+                    predictions = None
+                    batch_images = None
                     try:
-                        for iteration in range(config.warmup_iterations):
-                            batch_images = [images[(iteration * batch + offset) % len(images)] for offset in range(batch)]
-                            detector.batch_predict(batch_images, imgsz=imgsz, conf=config.conf, iou=config.iou)
+                        detector = UltralyticsDetector(model_name, device)
+                        detector.load()
+                        model_parameters = sum(parameter.numel() for parameter in detector.model.model.parameters())
+                        samples: dict[str, list[float]] = {key: [] for key in ("preprocess", "inference", "postprocess", "total")}
+                        case_batches = [
+                            [images[(iteration * batch + offset) % len(images)] for offset in range(batch)]
+                            for iteration in range(config.warmup_iterations + config.iterations)
+                        ]
+                        if args.preload:
+                            image_cache = preload_images(list({image for case_batch in case_batches for image in case_batch}))
+                            case_batches = [[image_cache[image] for image in case_batch] for case_batch in case_batches]
+                        reset_peak_memory(device)
+                        for batch_images in case_batches[:config.warmup_iterations]:
+                            detector.batch_predict(batch_images, batch=batch, imgsz=imgsz, conf=config.conf, iou=config.iou)
                         synchronize(device)
-                        for iteration in range(config.iterations):
-                            batch_images = [images[(iteration * batch + offset) % len(images)] for offset in range(batch)]
+                        for batch_images in case_batches[config.warmup_iterations:]:
                             synchronize(device)
                             started = time.perf_counter()
-                            predictions = detector.batch_predict(batch_images, imgsz=imgsz, conf=config.conf, iou=config.iou)
+                            predictions = detector.batch_predict(batch_images, batch=batch, imgsz=imgsz, conf=config.conf, iou=config.iou)
                             synchronize(device)
                             wall_ms_per_image = (time.perf_counter() - started) * 1000 / batch
                             samples["total"].append(wall_ms_per_image)
-                            if predictions:
-                                speed = predictions[0].speed
-                                for phase in ("preprocess", "inference", "postprocess"):
-                                    samples[phase].append(float(speed.get(phase, 0.0)))
+                            for phase, phase_ms in mean_result_phase_times(predictions).items():
+                                samples[phase].append(phase_ms)
                         record = {"status": "completed", "model": model_name, "checkpoint": model_name, "parameters": model_parameters,
                                   "imgsz": imgsz, "batch": batch, "warmup_iterations": config.warmup_iterations,
                                   "iterations": config.iterations, "latency_ms": {key: summarize(values) for key, values in samples.items()},
                                   "images_per_second": 1000 * batch / (statistics.fmean(samples["total"]) * batch) if samples["total"] else None,
-                                  "gpu_memory": memory_stats(device)}
+                                  "gpu_memory": memory_stats(device), "input_preloaded": args.preload,
+                                  "timing_semantics": {"total": "synchronized end-to-end predict wall time per image; includes disk read/decode unless --preload is set",
+                                                       "phases": "Ultralytics model-side preprocessing/inference/postprocessing per image; aggregated across all Results in each batch"}}
                     except Exception as exc:
                         if "out of memory" in str(exc).lower() or "hiperroroutofmemory" in str(exc).lower():
                             record = {"status": "FAILED", "reason": "CUDA/HIP out of memory", "detail": str(exc), "model": model_name, "batch": batch, "imgsz": imgsz}
                         else:
                             raise
+                    finally:
+                        if detector is not None:
+                            del detector
+                        case_batches.clear()
+                        image_cache.clear()
+                        predictions = None
+                        batch_images = None
+                        release_gpu_memory(device)
                     all_results.append(record)
                     write_json(output / "benchmark.json", {"status": "completed" if all(item["status"] == "completed" for item in all_results) else "FAILED", "results": all_results})
         payload = {"status": "completed" if all(item["status"] == "completed" for item in all_results) else "FAILED", "model": args.model or config.model, "hardware": env["devices"], "torch_version": env["torch_version"], "hip_version": env["hip_version"], "inference": all_results[0] if len(all_results) == 1 else {}, "results": all_results, "dataset": str(config.dataset_yaml)}

@@ -11,8 +11,12 @@ workers: 8
 device: 0
 allow_cpu: false
 amp: true
+deterministic: true
 optimizer: SGD
 lr0: 0.01
+save_period: -1
+plots: true
+run_tag: amd_rx6800
 seed: 17
 fraction: 1.0
 warmup_iterations: 20

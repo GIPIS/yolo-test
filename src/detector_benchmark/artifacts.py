@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Any
 
 
-def run_name(model: str, now: datetime | None = None) -> str:
+def run_name(model: str, now: datetime | None = None, tag: str = "amd_rx6800") -> str:
     timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", Path(model).stem).strip("-").lower() or "model"
-    return f"{timestamp}_amd_rx6800_{slug}"
+    tag_slug = tag if tag == "amd_rx6800" else re.sub(r"[^a-zA-Z0-9]+", "-", tag).strip("-").lower() or "run"
+    return f"{timestamp}_{tag_slug}_{slug}"
 
 
 def json_safe(value: Any) -> Any:

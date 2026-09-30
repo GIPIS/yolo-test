@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import statistics
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, A
     model = YOLO(config.model)
     epoch_started: list[float] = []
     epoch_durations: list[float] = []
+    validation_started: list[float] = []
+    validation_durations: list[float] = []
 
     def on_epoch_start(trainer: Any) -> None:
         epoch_started.append(time.perf_counter())
@@ -29,17 +32,26 @@ def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, A
         if epoch_started:
             epoch_durations.append(time.perf_counter() - epoch_started[-1])
 
+    def on_validation_start(trainer: Any) -> None:
+        validation_started.append(time.perf_counter())
+
+    def on_validation_end(trainer: Any) -> None:
+        if validation_started:
+            validation_durations.append(time.perf_counter() - validation_started.pop())
+
     model.add_callback("on_train_epoch_start", on_epoch_start)
     model.add_callback("on_train_epoch_end", on_epoch_end)
+    model.add_callback("on_val_start", on_validation_start)
+    model.add_callback("on_val_end", on_validation_end)
     reset_peak_memory(device)
     started = time.perf_counter()
     try:
         train_args = {
             "data": str(config.dataset_yaml), "epochs": config.epochs, "imgsz": config.imgsz, "batch": config.batch,
             "device": device, "amp": config.amp, "workers": config.workers, "optimizer": config.optimizer, "lr0": config.lr0,
-            "seed": config.seed, "deterministic": True, "fraction": config.fraction, "pretrained": config.pretrained,
-            "project": str(output_dir.parent), "name": output_dir.name, "exist_ok": True, "plots": True,
-            "verbose": True, "cache": False, "val": True, "save": True, "save_period": 1,
+            "seed": config.seed, "deterministic": config.deterministic, "fraction": config.fraction, "pretrained": config.pretrained,
+            "project": str(output_dir.parent), "name": output_dir.name, "exist_ok": True, "plots": config.plots,
+            "verbose": True, "cache": False, "val": True, "save": True, "save_period": config.save_period,
         }
         train_args.update(config.train_options)
         result = model.train(**train_args)
@@ -59,16 +71,20 @@ def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, A
         dataset_metadata = yaml.safe_load(config.dataset_yaml.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         dataset_metadata = {}
-    try:
-        images_per_second = dataset_size * config.fraction * config.epochs / elapsed if dataset_size else None
-    except ZeroDivisionError:
-        images_per_second = None
+    pure_train_seconds = sum(epoch_durations)
+    validation_seconds = sum(validation_durations)
+    images_per_second = dataset_size * config.fraction * config.epochs / pure_train_seconds if dataset_size and pure_train_seconds > 0 else None
+    images_per_second_wall = dataset_size * config.fraction * config.epochs / elapsed if dataset_size and elapsed > 0 else None
+    time_per_epoch = statistics.fmean(epoch_durations) if epoch_durations else None
     return {"status": "completed", "model": config.model, "checkpoint": str(actual_dir / "weights" / "best.pt"),
-            "total_training_seconds": elapsed, "time_per_epoch_seconds": elapsed / config.epochs,
+            "total_training_seconds": elapsed, "pure_train_seconds": pure_train_seconds,
+            "validation_seconds": validation_seconds, "time_per_epoch_seconds": time_per_epoch,
             "epoch_times_seconds": epoch_durations,
             "last_epoch_delta_seconds": epoch_durations[-1] if epoch_durations else None,
-            "approx_images_per_second": images_per_second, "parameters": parameters,
+            "approx_images_per_second": images_per_second, "approx_images_per_second_wall": images_per_second_wall,
+            "parameters": parameters,
             "batch": config.batch, "imgsz": config.imgsz, "epochs": config.epochs, "amp": config.amp,
+            "deterministic": config.deterministic, "plots": config.plots, "save_period": config.save_period,
             "optimizer": config.optimizer, "lr0": config.lr0, "dataset_yaml": str(config.dataset_yaml),
             "dataset_size_images": dataset_size, "dataset_fraction": config.fraction,
             "dataset_version": dataset_metadata.get(

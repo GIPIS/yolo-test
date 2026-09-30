@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .env
 .DS_Store
@@ -9,6 +10,8 @@ runs/**
 datasets/
 *.pt
 *.onnx
+diff.diff
+commit.txt
 
 # Directory tree of the repo
 # Usage:
