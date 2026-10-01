@@ -25,7 +25,7 @@ def test_load_self_contained_training_config_resolves_paths_from_config(tmp_path
     path.write_text(
         "mode: benchmark\nmodel: yolo26n.pt\nsource_images: ../raw/images\nsource_labels: ../raw/labels\n"
         "output: ../prepared\nclasses: [crack, corrosion]\nruns_dir: ../runs\n"
-        "imgsz: 640\nbatch: 4\nepochs: 5\n",
+        "imgsz: 640\nbatch: 6\nepochs: 5\ndevice: [0, 1, 2]\n",
         encoding="utf-8",
     )
 
@@ -37,6 +37,7 @@ def test_load_self_contained_training_config_resolves_paths_from_config(tmp_path
     assert config.dataset_yaml == (tmp_path / "prepared" / "dataset.yaml").resolve()
     assert config.runs_dir == (tmp_path / "runs").resolve()
     assert config.classes == ["crack", "corrosion"]
+    assert config.device == [0, 1, 2]
 
 
 def test_load_config_example():
@@ -50,7 +51,6 @@ def test_load_config_example():
 def test_training_options_are_loaded_and_cannot_override_core_settings(tmp_path):
     config_path = Path(__file__).parents[1] / "configs" / "mbdd2025.yaml"
     config = load_config(config_path)
-    assert config.device == [0, 1, 2]
     assert config.train_options["mosaic"] == 1.0
     assert config.train_options["hsv_h"] == 0.015
 

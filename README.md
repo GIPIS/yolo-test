@@ -112,6 +112,17 @@ python scripts/evaluate.py --run runs/<run-directory>
 
 For validation on CPU only, add `--allow-cpu`. The wrapper calls Ultralytics validation, which supplies COCO-style detection metrics when the dataset is COCO.
 
+## Predict on new images
+
+Use a trained detection checkpoint such as `best.pt` to predict on one image or a directory of images. The script prints each class, confidence, and pixel-coordinate `xyxy` box, then saves an annotated image. It works with any Ultralytics-compatible object-detection checkpoint; class names come from that model.
+
+```sh
+python scripts/predict.py --model runs/<run-directory>/weights/best.pt --source /path/to/image.jpg --output detected.jpg --device 0
+python scripts/predict.py --model runs/<run-directory>/weights/best.pt --source /path/to/images --output runs/predictions --imgsz 640 --conf 0.25
+```
+
+For a directory source, relative subdirectories are preserved under the output directory. Use `--device cpu` to run on CPU, `--classes 0 2` to filter class IDs, and adjust `--conf`, `--iou`, `--imgsz`, and `--batch` as needed. Detection output is specific to the classes the checkpoint was trained to recognize.
+
 ## Benchmarks
 
 Benchmark scripts never enumerate the full hardware matrix unless you explicitly ask. The configured run is just one setting; pass repeated model and image-size choices and a batch list to select a subset.
