@@ -3,6 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from detector_benchmark.config import load_config
@@ -99,3 +100,34 @@ def test_train_script_prepares_dataset_before_training(monkeypatch, tmp_path):
     saved_config = load_config(tmp_path / "runs" / "training-test" / "source_config.yaml")
     assert saved_config.source_images == source_images.resolve()
     assert saved_config.data_root == (tmp_path / "prepared").resolve()
+
+
+def test_multi_gpu_training_requires_divisible_total_batch(tmp_path):
+    config = load_config(Path(__file__).parents[1] / "configs" / "smoke.yaml")
+    with pytest.raises(ValueError, match="batch must be divisible"):
+        train(replace(config, batch=4), tmp_path / "run", "0,1,2")
+
+
+def test_training_forwards_all_selected_gpus(monkeypatch, tmp_path):
+    config = replace(load_config(Path(__file__).parents[1] / "configs" / "smoke.yaml"), batch=6)
+    captured = {}
+
+    class FakeYOLO:
+        def __init__(self, model):
+            self.model = SimpleNamespace(parameters=lambda: [])
+
+        def add_callback(self, event, callback):
+            pass
+
+        def train(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(save_dir=tmp_path / "run", results_dict={})
+
+    monkeypatch.setitem(__import__("sys").modules, "ultralytics", SimpleNamespace(YOLO=FakeYOLO))
+    monkeypatch.setattr("detector_benchmark.training.reset_peak_memory", lambda device: None)
+    monkeypatch.setattr("detector_benchmark.training.memory_stats", lambda device: {})
+    monkeypatch.setattr("detector_benchmark.training.time.perf_counter", iter([0, 1]).__next__)
+
+    train(config, tmp_path / "run", "0,1,2")
+
+    assert captured["device"] == "0,1,2"

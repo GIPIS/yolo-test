@@ -24,6 +24,7 @@ imgsz: 640
 batch: 4
 epochs: 5
 workers: 4
+# Use [0, 1, 2] to train across three visible GPUs; batch must divide evenly by GPU count.
 device: 0
 allow_cpu: false
 amp: false

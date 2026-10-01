@@ -50,6 +50,7 @@ def test_load_config_example():
 def test_training_options_are_loaded_and_cannot_override_core_settings(tmp_path):
     config_path = Path(__file__).parents[1] / "configs" / "mbdd2025.yaml"
     config = load_config(config_path)
+    assert config.device == [0, 1, 2]
     assert config.train_options["mosaic"] == 1.0
     assert config.train_options["hsv_h"] == 0.015
 

@@ -75,9 +75,18 @@ def detect_environment(torch_module: Any | None = None) -> dict[str, Any]:
     return info
 
 
-def require_gpu(info: dict[str, Any], allow_cpu: bool = False, requested_device: str | int | None = None) -> str:
+def require_gpu(
+    info: dict[str, Any], allow_cpu: bool = False, requested_device: str | int | list[int] | None = None
+) -> str:
     """Return device spec; never permit implicit CPU fallback for a benchmark."""
-    device = str(requested_device if requested_device is not None else "0")
+    if isinstance(requested_device, list):
+        if not requested_device or any(isinstance(index, bool) or not isinstance(index, int) or index < 0 for index in requested_device):
+            raise RuntimeError("GPU device lists must contain one or more non-negative integer indices.")
+        if len(set(requested_device)) != len(requested_device):
+            raise RuntimeError("GPU device lists cannot contain duplicate indices.")
+        device = ",".join(str(index) for index in requested_device)
+    else:
+        device = str(requested_device if requested_device is not None else "0")
     if device == "cpu":
         if allow_cpu:
             return "cpu"
@@ -88,11 +97,22 @@ def require_gpu(info: dict[str, Any], allow_cpu: bool = False, requested_device:
                 return "cpu"
             raise RuntimeError("A GPU is visible, but this PyTorch build does not report HIP. Refusing to use a CUDA-only/non-ROCm build for an AMD benchmark.")
         index_text = device.split(":", 1)[1] if device.startswith("cuda:") else device
-        if index_text.isdigit() and int(index_text) >= int(info.get("device_count", 0)):
-            raise RuntimeError(f"Configured GPU device {device} is unavailable; PyTorch reports {info.get('device_count', 0)} device(s).")
-        if not (index_text.isdigit() or device == "cuda"):
-            raise RuntimeError(f"Unsupported GPU device selection {device!r}; use a visible index such as 0 or explicit CPU mode.")
-        return device
+        if device == "cuda":
+            return device
+        indices = index_text.split(",")
+        if any(not index.isdigit() for index in indices):
+            raise RuntimeError(f"Unsupported GPU device selection {device!r}; use an index or a list such as [0, 1].")
+        normalized_indices = [str(int(index)) for index in indices]
+        if len(set(normalized_indices)) != len(normalized_indices):
+            raise RuntimeError("GPU device selections cannot contain duplicate indices.")
+        unavailable = [index for index in normalized_indices if int(index) >= int(info.get("device_count", 0))]
+        if unavailable:
+            raise RuntimeError(
+                f"Configured GPU device(s) {', '.join(unavailable)} are unavailable; "
+                f"PyTorch reports {info.get('device_count', 0)} device(s)."
+            )
+        normalized_selection = ",".join(normalized_indices)
+        return normalized_selection if "," in normalized_selection else device
     if allow_cpu:
         return "cpu"
     details = info.get("torch_device_error") or "PyTorch reports no HIP/CUDA-visible GPU."

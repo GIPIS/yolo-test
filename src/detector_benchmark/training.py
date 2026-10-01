@@ -14,6 +14,9 @@ from .config import BenchmarkConfig
 
 
 def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, Any]:
+    device_count = len(device.split(",")) if device != "cpu" else 0
+    if device_count > 1 and config.batch % device_count:
+        raise ValueError(f"batch must be divisible by the number of selected GPUs ({device_count}); got {config.batch}.")
     try:
         from ultralytics import YOLO
     except ImportError as exc:

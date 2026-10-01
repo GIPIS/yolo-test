@@ -22,7 +22,7 @@ class BenchmarkConfig:
     batch: int
     epochs: int
     workers: int
-    device: str | int
+    device: str | int | list[int]
     allow_cpu: bool
     amp: bool
     optimizer: str
