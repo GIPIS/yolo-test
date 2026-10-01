@@ -1,0 +1,43 @@
+# Required: mode, model, source_images, source_labels, output, classes,
+# runs_dir, imgsz, batch, and epochs. Relative paths are based on this file.
+mode: benchmark
+model: yolo26n.pt
+pretrained: true
+
+# Input images and YOLO detection labels must have matching file stems.
+source_images: /path/to/MBDD2025/JPEGImages
+source_labels: /path/to/MBDD2025/Labels
+output: ./datasets/prepared
+dataset_name: MBDD2025
+classes:
+  - crack
+  - leakage
+  - abscission
+  - corrosion
+  - bulge
+validation_fraction: 0.2
+seed: 17
+link_files: true
+
+runs_dir: ./runs
+imgsz: 640
+batch: 4
+epochs: 5
+workers: 4
+device: 0
+allow_cpu: false
+amp: false
+deterministic: true
+optimizer: SGD
+lr0: 0.01
+fraction: 1.0
+save_period: -1
+plots: true
+run_tag: benchmark
+warmup_iterations: 20
+iterations: 100
+conf: 0.25
+iou: 0.7
+
+# Optional Ultralytics training arguments; top-level settings cannot be repeated here.
+train_options: {}

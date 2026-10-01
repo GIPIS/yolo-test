@@ -18,6 +18,35 @@ def test_load_smoke_config():
     assert config.run_tag == "amd_rx6800"
 
 
+def test_load_self_contained_training_config_resolves_paths_from_config(tmp_path):
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    path = config_dir / "training.yaml"
+    path.write_text(
+        "mode: benchmark\nmodel: yolo26n.pt\nsource_images: ../raw/images\nsource_labels: ../raw/labels\n"
+        "output: ../prepared\nclasses: [crack, corrosion]\nruns_dir: ../runs\n"
+        "imgsz: 640\nbatch: 4\nepochs: 5\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert config.source_images == (tmp_path / "raw" / "images").resolve()
+    assert config.source_labels == (tmp_path / "raw" / "labels").resolve()
+    assert config.data_root == (tmp_path / "prepared").resolve()
+    assert config.dataset_yaml == (tmp_path / "prepared" / "dataset.yaml").resolve()
+    assert config.runs_dir == (tmp_path / "runs").resolve()
+    assert config.classes == ["crack", "corrosion"]
+
+
+def test_load_config_example():
+    config = load_config(Path(__file__).parents[1] / "config_example.yaml")
+
+    assert config.source_images == Path("/path/to/MBDD2025/JPEGImages")
+    assert config.source_labels == Path("/path/to/MBDD2025/Labels")
+    assert config.dataset_yaml == (Path(__file__).parents[1] / "datasets/prepared/dataset.yaml").resolve()
+
+
 def test_training_options_are_loaded_and_cannot_override_core_settings(tmp_path):
     config_path = Path(__file__).parents[1] / "configs" / "mbdd2025.yaml"
     config = load_config(config_path)

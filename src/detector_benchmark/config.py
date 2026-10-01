@@ -32,6 +32,12 @@ class BenchmarkConfig:
     warmup_iterations: int
     iterations: int
     train_options: dict[str, Any] = field(default_factory=dict)
+    source_images: Path | None = None
+    source_labels: Path | None = None
+    classes: Any = None
+    dataset_name: str | None = None
+    validation_fraction: float = 0.2
+    link_files: bool = True
     save_period: int = -1
     plots: bool = True
     deterministic: bool = True
@@ -61,10 +67,20 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
         raise ValueError("Configuration must be a YAML mapping")
     raw = {key: _expand(value) for key, value in raw.items()}
     raw.update(overrides or {})
-    required = {"mode", "model", "dataset_yaml", "data_root", "runs_dir", "imgsz", "batch", "epochs"}
+    required = {"mode", "model", "runs_dir", "imgsz", "batch", "epochs"}
     missing = sorted(required - raw.keys())
     if missing:
         raise ValueError(f"Missing required configuration fields: {', '.join(missing)}")
+    dataset_fields = {"source_images", "source_labels", "output", "classes"}
+    configured_dataset_fields = dataset_fields.intersection(raw)
+    if configured_dataset_fields and configured_dataset_fields != dataset_fields:
+        missing_dataset_fields = sorted(dataset_fields - configured_dataset_fields)
+        raise ValueError(f"Missing required dataset preparation fields: {', '.join(missing_dataset_fields)}")
+    prepare_dataset = configured_dataset_fields == dataset_fields
+    if not prepare_dataset:
+        missing_dataset_fields = sorted({"dataset_yaml", "data_root"} - raw.keys())
+        if missing_dataset_fields:
+            raise ValueError(f"Missing required dataset fields: {', '.join(missing_dataset_fields)}")
     if raw["mode"] not in {"smoke", "benchmark"}:
         raise ValueError("mode must be 'smoke' or 'benchmark'")
     for field in ("imgsz", "batch", "epochs"):
@@ -92,11 +108,40 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
     conflicts = sorted(reserved_train_options.intersection(train_options))
     if conflicts:
         raise ValueError(f"train_options cannot override top-level training config fields: {', '.join(conflicts)}")
-    path_fields = {key: Path(str(raw[key])).expanduser() for key in ("dataset_yaml", "data_root", "runs_dir")}
-    # Relative paths are interpreted from the repository, not the caller's cwd.
-    for key, value in path_fields.items():
-        if not value.is_absolute():
-            path_fields[key] = (config_path.parent.parent / value).resolve()
+    if prepare_dataset:
+        classes = raw["classes"]
+        if not isinstance(classes, (list, dict)) or not classes:
+            raise ValueError("classes must be a non-empty YAML list or mapping")
+        validation_fraction = float(raw.get("validation_fraction", 0.2))
+        if not 0 < validation_fraction < 1:
+            raise ValueError("validation_fraction must be in (0, 1)")
+        link_files = raw.get("link_files", True)
+        if not isinstance(link_files, bool):
+            raise ValueError("link_files must be a boolean")
+
+        def resolve_config_path(value: Any) -> Path:
+            path_value = Path(str(value)).expanduser()
+            return (path_value if path_value.is_absolute() else config_path.parent / path_value).resolve()
+
+        data_root = resolve_config_path(raw["output"])
+        path_fields = {
+            "dataset_yaml": data_root / "dataset.yaml",
+            "data_root": data_root,
+            "runs_dir": resolve_config_path(raw["runs_dir"]),
+        }
+        source_images = resolve_config_path(raw["source_images"])
+        source_labels = resolve_config_path(raw["source_labels"])
+    else:
+        path_fields = {key: Path(str(raw[key])).expanduser() for key in ("dataset_yaml", "data_root", "runs_dir")}
+        # Legacy configs use repository-relative paths; self-contained configs use config-relative paths.
+        for key, value in path_fields.items():
+            if not value.is_absolute():
+                path_fields[key] = (config_path.parent.parent / value).resolve()
+        classes = None
+        validation_fraction = 0.2
+        link_files = True
+        source_images = None
+        source_labels = None
     return BenchmarkConfig(
         mode=str(raw["mode"]), model=str(raw["model"]), pretrained=bool(raw.get("pretrained", True)),
         **path_fields, imgsz=int(raw["imgsz"]), batch=int(raw["batch"]), epochs=int(raw["epochs"]),
@@ -105,6 +150,9 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
         seed=int(raw.get("seed", 17)), fraction=float(raw.get("fraction", 1.0)),
         warmup_iterations=int(raw.get("warmup_iterations", 20)), iterations=int(raw.get("iterations", 100)),
         train_options=train_options,
+        source_images=source_images, source_labels=source_labels,
+        classes=classes, dataset_name=raw.get("dataset_name"), validation_fraction=validation_fraction,
+        link_files=link_files,
         save_period=save_period, plots=raw.get("plots", True), deterministic=raw.get("deterministic", True),
         run_tag=run_tag,
         conf=float(raw.get("conf", 0.25)), iou=float(raw.get("iou", 0.7)),

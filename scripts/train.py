@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from detector_benchmark.artifacts import git_commit, run_name, write_json
 from detector_benchmark.benchmarking import environment_record
 from detector_benchmark.config import load_config
+from detector_benchmark.datasets import prepare_yolo_dataset
 from detector_benchmark.hardware import require_gpu
 from detector_benchmark.reporting import write_summary
 from detector_benchmark.training import train
@@ -29,9 +31,24 @@ def main() -> int:
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
         run_created = True
-        shutil.copy2(args.config, run_dir / "source_config.yaml")
+        source_config_path = args.config.expanduser().resolve()
+        source_config = yaml.safe_load(source_config_path.read_text(encoding="utf-8")) or {}
+        source_config["runs_dir"] = str(config.runs_dir)
+        if config.source_images is not None:
+            source_config.update({
+                "source_images": str(config.source_images),
+                "source_labels": str(config.source_labels),
+                "output": str(config.data_root),
+            })
+        else:
+            source_config.update({"dataset_yaml": str(config.dataset_yaml), "data_root": str(config.data_root)})
+        (run_dir / "source_config.yaml").write_text(
+            yaml.safe_dump(source_config, sort_keys=False), encoding="utf-8"
+        )
         write_json(run_dir / "config.json", {**config.to_dict(), "git_commit": git_commit(), "device_requested": config.device})
         write_json(run_dir / "environment.json", env)
+        if config.source_images is not None:
+            prepare_yolo_dataset(args.config)
         device = require_gpu(env, allow_cpu=args.allow_cpu or config.allow_cpu, requested_device=config.device)
         # Keep the earlier device_requested record and add the resolved device_used value.
         write_json(run_dir / "config.json", {**config.to_dict(), "git_commit": git_commit(), "device_used": device})

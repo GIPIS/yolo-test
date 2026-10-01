@@ -1,3 +1,4 @@
+import importlib.util
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,3 +57,45 @@ def test_training_reports_train_validation_and_wall_timings(monkeypatch, tmp_pat
     assert captured["deterministic"] is False
     assert captured["plots"] is False
     assert captured["save_period"] == 3
+
+
+def test_train_script_prepares_dataset_before_training(monkeypatch, tmp_path):
+    script_path = Path(__file__).parents[1] / "scripts" / "train.py"
+    spec = importlib.util.spec_from_file_location("train_script", script_path)
+    train_script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(train_script)
+
+    config_path = tmp_path / "config.yaml"
+    source_images = tmp_path / "source" / "images"
+    source_labels = tmp_path / "source" / "labels"
+    source_images.mkdir(parents=True)
+    source_labels.mkdir(parents=True)
+    for index in range(2):
+        (source_images / f"image_{index}.jpg").touch()
+        (source_labels / f"image_{index}.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+    config_path.write_text(
+        "mode: benchmark\nmodel: yolo26n.pt\nsource_images: source/images\nsource_labels: source/labels\n"
+        "output: prepared\nclasses: [target]\nruns_dir: runs\nimgsz: 64\nbatch: 1\nepochs: 1\n"
+        "device: cpu\nallow_cpu: true\n",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_train(config, run_dir, device):
+        assert config.dataset_yaml.is_file()
+        captured["names"] = yaml.safe_load(config.dataset_yaml.read_text(encoding="utf-8"))["names"]
+        captured["device"] = device
+        return {"status": "completed"}
+
+    monkeypatch.setattr("sys.argv", ["train.py", "--config", str(config_path)])
+    monkeypatch.setattr(train_script, "run_name", lambda *args, **kwargs: "training-test")
+    monkeypatch.setattr(train_script, "environment_record", lambda: {"devices": [], "torch_version": None, "hip_version": None})
+    monkeypatch.setattr(train_script, "require_gpu", lambda *args, **kwargs: "cpu")
+    monkeypatch.setattr(train_script, "train", fake_train)
+    monkeypatch.setattr(train_script, "write_summary", lambda *args, **kwargs: None)
+
+    assert train_script.main() == 0
+    assert captured == {"names": {0: "target"}, "device": "cpu"}
+    saved_config = load_config(tmp_path / "runs" / "training-test" / "source_config.yaml")
+    assert saved_config.source_images == source_images.resolve()
+    assert saved_config.data_root == (tmp_path / "prepared").resolve()

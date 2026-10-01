@@ -24,15 +24,16 @@ This workspace's host has Manjaro Linux and no `rocminfo`, `rocm-smi`, or `nvidi
 2. Use the supported Python matching the selected ROCm/PyTorch release (Python 3.10/3.11 recommended for the legacy experimental route).
 3. Install PyTorch from the official PyTorch selector choosing Linux, pip, and the matching ROCm build. Check the ROCm-specific wheel URL/version. Install PyTorch first, then this project:
 
-   ```sh
-   python -m venv .venv
-   . .venv/bin/activate
-   python -m pip install --upgrade pip
-   # Install the matching ROCm PyTorch build from the official selector before the next command.
-   python -m pip install -e '.[benchmark,test]'
-   ```
+```sh
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+# Install the matching ROCm PyTorch build from the official selector before the next command.
+python -m pip freeze | grep -iE '^(torch|torchvision|torchaudio)==' > constraints-rocm.txt
+python -m pip install -c constraints-rocm.txt -e '.[benchmark,test]'
+```
 
-   The project deliberately does not pin/install a CUDA or ROCm PyTorch wheel: AMD support depends on the machine's driver, OS, ROCm and GPU combination. The user selects a coherent stack explicitly.
+The project deliberately does not pin/install a CUDA or ROCm PyTorch wheel: AMD support depends on the machine's driver, OS, ROCm and GPU combination. The user selects a coherent stack explicitly.
 
 ## GPU verification
 
@@ -40,19 +41,27 @@ Run `python scripts/check_environment.py`. The command reports OS/kernel/CPU/mem
 
 ## Dataset setup
 
-No dataset is downloaded implicitly. Organize a custom object-detection dataset as matching image and YOLO label files: each image needs a `.txt` file with the same stem. Each non-empty label line must be `class_id x_center y_center width height`; coordinates are normalized to the range $[0,1]$. Empty label files represent images with no objects. Class IDs must be zero-based and match the order of `classes` in the preparation config. This pipeline does not infer classes or automatically convert VOC XML, COCO JSON, segmentation masks, or classification folders to detection labels. Convert those inputs to YOLO detection labels first, or add a format-specific adapter.
+No dataset is downloaded implicitly. Organize a custom object-detection dataset as matching image and YOLO label files: each image needs a `.txt` file with the same stem. Each non-empty label line must be `class_id x_center y_center width height`; coordinates are normalized to the range $[0,1]$. Empty label files represent images with no objects. Class IDs must be zero-based and match the order of `classes` in the training config. This pipeline does not infer classes or automatically convert VOC XML, COCO JSON, segmentation masks, or classification folders to detection labels. Convert those inputs to YOLO detection labels first, or add a format-specific adapter.
 
-### Prepare a new dataset from YOLO labels
+### Configure a new dataset and train
 
-1. Put raw data in directories, for example `datasets/source/images/` and `datasets/source/labels/`. Image/label names must match by stem.
-2. Edit [configs/dataset.yaml](configs/dataset.yaml): set `source_images`, `source_labels`, and `output` (paths are relative to that YAML file); set `classes` in the same order as the IDs in label files; choose `validation_fraction`, `seed`, and `link_files`.
-3. Prepare and validate the train/validation split:
+Copy [config_example.yaml](config_example.yaml) and set `source_images`, `source_labels`, `output`, and `classes`, along with the model and training settings. Paths are relative to the config file unless absolute. `train.py` prepares and validates the train/validation split before starting training:
 
-   ```sh
-   python scripts/prepare_dataset.py --config configs/dataset.yaml
-   ```
+```sh
+python3 scripts/train.py --config my_config.yaml
+```
 
-   The output includes `dataset.yaml`, a split manifest, and `images/` / `labels/` train-validation directories. Symlinks are used by default to avoid duplicating large image collections; set `link_files: false` to copy files. Re-running the same config validates and reuses the split. Changed config values never overwrite a non-matching existing output.
+The output directory receives the generated Ultralytics `dataset.yaml`, a split manifest, and `images/` / `labels/` train-validation directories. Symlinks are used by default to avoid duplicating large image collections; set `link_files: false` to copy files. Re-running the same config validates and reuses the split. Changed config values never overwrite a non-matching existing output. The equivalent standalone preparation command is `python3 scripts/prepare_dataset.py --config my_config.yaml`.
+
+### Prepare a dataset separately
+
+To create and validate a split without training, use [configs/dataset.yaml](configs/dataset.yaml), which contains only dataset-preparation settings:
+
+```sh
+python3 scripts/prepare_dataset.py --config configs/dataset.yaml
+```
+
+The generated dataset can also be used by legacy configs that specify an existing `dataset_yaml` and `data_root` directly.
 
 ### Use an already prepared dataset
 
@@ -66,12 +75,10 @@ The downloader writes `datasets/coco/coco.yaml`. Set `dataset_yaml: ./datasets/c
 
 ### Configure and train
 
-Training is also driven by YAML. [configs/detection.yaml](configs/detection.yaml) is a generic starting point: set its dataset YAML and root, then configure model, pretrained weights, image size, batch size, epochs, optimizer, learning rate, seed, workers, AMP, deterministic mode, checkpoint cadence, plot generation, and data fraction. Additional Ultralytics image transforms/augmentations (for example color jitter, flips, mosaic, mixup, and geometry) are passed under `train_options`. No values are automatically tuned by dataset content; omitted options use defaults from the installed Ultralytics version. Deterministic mode defaults to true to preserve behavior, but can slow training and some deterministic operators may be unsupported or raise errors on ROCm; set `deterministic: false` explicitly if needed and record that choice.
-
-Run training with the config path as an argument:
+Training settings and dataset-preparation settings live together in one YAML. Additional Ultralytics image transforms/augmentations (for example color jitter, flips, mosaic, mixup, and geometry) are passed under `train_options`. No values are automatically tuned by dataset content; omitted options use defaults from the installed Ultralytics version. Deterministic mode defaults to true to preserve behavior, but can slow training and some deterministic operators may be unsupported or raise errors on ROCm; set `deterministic: false` explicitly if needed and record that choice. Existing prepared datasets can continue to use configs with `dataset_yaml` and `data_root` instead of raw image/label paths.
 
 ```sh
-python scripts/train.py --config configs/detection.yaml
+python3 scripts/train.py --config configs/mbdd2025.yaml
 ```
 
 For GPU benchmarking, verify the configured GPU first; the generic config defaults to `device: 0` and forbids CPU fallback. To deliberately run training on CPU, set `device: cpu` and `allow_cpu: true` in a separate config (or pass `--allow-cpu`). `save_period` defaults to `-1` (no periodic per-epoch checkpoints; final/best saving remains managed by Ultralytics) and `plots` defaults to `true`; disable plots for a cleaner throughput measurement, and set checkpoint cadence explicitly when checkpoint I/O is part of the test. A short run validates the workflow but does not establish convergence. For performance studies, select specific cases rather than running a full matrix, e.g. `python scripts/benchmark_training.py --config configs/detection.yaml --models yolo26n.pt yolo26s.pt --imgsz 640 --batches 1 4 8`.
