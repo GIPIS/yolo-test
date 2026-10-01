@@ -35,10 +35,6 @@ fraction: 1.0
 save_period: -1
 plots: true
 run_tag: benchmark
-warmup_iterations: 20
-iterations: 100
-conf: 0.25
-iou: 0.7
 
 # Optional Ultralytics training arguments; top-level settings cannot be repeated here.
 train_options: {}

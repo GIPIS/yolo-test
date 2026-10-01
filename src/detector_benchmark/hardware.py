@@ -6,7 +6,10 @@ import platform
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from typing import Any
+
+from .artifacts import git_commit
 
 
 ROCM_ENV_KEYS = ("ROCM_HOME", "ROCM_PATH", "HIP_PATH", "HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES", "HSA_OVERRIDE_GFX_VERSION", "PYTORCH_ROCM_ARCH")
@@ -30,14 +33,19 @@ def detect_environment(torch_module: Any | None = None) -> dict[str, Any]:
     info: dict[str, Any] = {
         "python": sys.version, "os": platform.platform(), "kernel": platform.release(),
         "cpu": cpu_model, "cpu_count": os.cpu_count(),
-        "memory_total_bytes": None, "torch_version": None, "hip_version": None,
+        "memory_total_bytes": None, "memory_available_bytes": None, "memory_used_bytes": None,
+        "memory_percent": None, "torch_version": None, "hip_version": None,
         "cuda_available": False, "device_count": 0, "devices": [],
         "rocm_environment": {key: os.environ.get(key) for key in ROCM_ENV_KEYS if os.environ.get(key)},
         "ultralytics_version": None, "gpu_detected": False, "gpu_status": "GPU NOT detected",
     }
     try:
         import psutil
-        info["memory_total_bytes"] = psutil.virtual_memory().total
+        memory = psutil.virtual_memory()
+        info["memory_total_bytes"] = memory.total
+        info["memory_available_bytes"] = memory.available
+        info["memory_used_bytes"] = memory.used
+        info["memory_percent"] = memory.percent
     except ImportError:
         pass
     try:
@@ -121,3 +129,44 @@ def require_gpu(
         "matching the host ROCm stack, verify /dev/kfd and /dev/dri access, then rerun "
         "scripts/check_environment.py. CPU is allowed only with --allow-cpu or allow_cpu: true."
     )
+
+
+def _selected_device_indices(device: str, torch_module: Any) -> list[int]:
+    if device == "cpu":
+        return []
+    if device == "cuda":
+        return [int(torch_module.cuda.current_device())]
+    index_text = device.split(":", 1)[1] if device.startswith("cuda:") else device
+    return [int(index) for index in index_text.split(",")]
+
+
+def memory_stats(device: str = "0") -> dict[str, float | None]:
+    if device == "cpu":
+        return {"allocated_gib": None, "reserved_gib": None, "peak_allocated_gib": None}
+    import torch
+
+    indices = _selected_device_indices(device, torch)
+    gib = 1024 ** 3
+    return {
+        "allocated_gib": sum(torch.cuda.memory_allocated(index) for index in indices) / gib,
+        "reserved_gib": sum(torch.cuda.memory_reserved(index) for index in indices) / gib,
+        "peak_allocated_gib": sum(torch.cuda.max_memory_allocated(index) for index in indices) / gib,
+    }
+
+
+def reset_peak_memory(device: str = "0") -> None:
+    if device == "cpu":
+        return
+    import torch
+
+    for index in _selected_device_indices(device, torch):
+        torch.cuda.reset_peak_memory_stats(index)
+
+
+def environment_record() -> dict[str, Any]:
+    info = detect_environment()
+    info["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+    info["git_commit"] = git_commit()
+    info["platform"] = platform.platform()
+    info["python"] = sys.version
+    return info

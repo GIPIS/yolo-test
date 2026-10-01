@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from detector_benchmark.datasets import prepare_yolo_dataset, validate_yolo_dataset
-from detector_benchmark.metrics import summarize
 
 
 def test_dataset_validation_counts(tmp_path):
@@ -25,13 +24,6 @@ def test_dataset_missing_labels_fails(tmp_path):
     (image_dir / "unlabeled.jpg").touch()
     with pytest.raises(ValueError, match="labels missing"):
         validate_yolo_dataset(tmp_path, ("train2017",))
-
-
-def test_timing_statistics():
-    result = summarize([1, 2, 3, 4, 5])
-    assert result["mean"] == 3
-    assert result["p50"] == 3
-    assert result["p95"] == pytest.approx(4.8)
 
 
 def test_prepare_configured_dataset_creates_deterministic_yolo_splits(tmp_path):

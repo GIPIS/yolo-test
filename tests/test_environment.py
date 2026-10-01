@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import sys
 
 import pytest
 
@@ -51,3 +52,36 @@ def test_multi_gpu_device_selection_is_validated_and_normalized():
         require_gpu(info, requested_device=[0, 3])
     with pytest.raises(RuntimeError, match="duplicate"):
         require_gpu(info, requested_device=[0, 0])
+
+
+def test_environment_reports_available_system_memory(monkeypatch):
+    memory = SimpleNamespace(total=100, available=40, used=60, percent=60.0)
+    monkeypatch.setitem(sys.modules, "psutil", SimpleNamespace(virtual_memory=lambda: memory))
+
+    info = detect_environment(SimpleNamespace())
+
+    assert info["memory_total_bytes"] == 100
+    assert info["memory_available_bytes"] == 40
+    assert info["memory_used_bytes"] == 60
+    assert info["memory_percent"] == 60.0
+
+
+def test_gpu_memory_stats_cover_selected_devices(monkeypatch):
+    from detector_benchmark.hardware import memory_stats, reset_peak_memory
+
+    calls = []
+    class FakeCuda:
+        memory_allocated = staticmethod(lambda index: (index + 1) * 1024 ** 3)
+        memory_reserved = staticmethod(lambda index: (index + 2) * 1024 ** 3)
+        max_memory_allocated = staticmethod(lambda index: (index + 3) * 1024 ** 3)
+        reset_peak_memory_stats = staticmethod(lambda index: calls.append(index))
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=FakeCuda))
+
+    assert memory_stats("0,1,2") == {
+        "allocated_gib": 6.0,
+        "reserved_gib": 9.0,
+        "peak_allocated_gib": 12.0,
+    }
+    reset_peak_memory("0,1,2")
+    assert calls == [0, 1, 2]

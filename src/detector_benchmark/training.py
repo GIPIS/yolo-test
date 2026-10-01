@@ -9,8 +9,8 @@ from typing import Any
 
 import yaml
 
-from .benchmarking import memory_stats, reset_peak_memory
 from .config import BenchmarkConfig
+from .hardware import memory_stats, reset_peak_memory
 
 
 def train(config: BenchmarkConfig, output_dir: Path, device: str) -> dict[str, Any]:

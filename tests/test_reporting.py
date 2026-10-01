@@ -1,7 +1,7 @@
 from detector_benchmark.reporting import write_summary
 
 
-def test_summary_includes_training_and_inference_timing_definitions(tmp_path):
+def test_summary_includes_training_performance_and_accuracy(tmp_path):
     path = tmp_path / "summary.md"
     write_summary(path, {
         "status": "completed",
@@ -15,13 +15,12 @@ def test_summary_includes_training_and_inference_timing_definitions(tmp_path):
             "approx_images_per_second": 20.0,
             "approx_images_per_second_wall": 15.0,
         },
-        "inference": {
-            "latency_ms": {"total": {"p50": 12.0}},
-            "timing_semantics": {"total": "end-to-end includes decode", "phases": "per-image model phases"},
-        },
+        "accuracy": {"metrics/mAP50(B)": 0.62, "metrics/mAP50-95(B)": 0.41},
     })
     summary = path.read_text(encoding="utf-8")
     assert "Pure training time: 10.0 s" in summary
     assert "Validation time: 3.0 s" in summary
-    assert "Inference total timing: end-to-end includes decode" in summary
-    assert "Inference phase timing: per-image model phases" in summary
+    assert "mAP50: 0.62" in summary
+    assert "mAP50-95: 0.41" in summary
+    assert "# Training summary" in summary
+    assert "Inference latency" not in summary

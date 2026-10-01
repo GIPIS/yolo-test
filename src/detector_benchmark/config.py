@@ -29,8 +29,6 @@ class BenchmarkConfig:
     lr0: float
     seed: int
     fraction: float
-    warmup_iterations: int
-    iterations: int
     train_options: dict[str, Any] = field(default_factory=dict)
     source_images: Path | None = None
     source_labels: Path | None = None
@@ -42,8 +40,6 @@ class BenchmarkConfig:
     plots: bool = True
     deterministic: bool = True
     run_tag: str = "amd_rx6800"
-    conf: float = 0.25
-    iou: float = 0.7
 
     def to_dict(self) -> dict[str, Any]:
         return {key: str(value) if isinstance(value, Path) else value for key, value in self.__dict__.items()}
@@ -148,12 +144,10 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Be
         workers=int(raw.get("workers", 4)), device=raw.get("device", 0), allow_cpu=bool(raw.get("allow_cpu", False)),
         amp=bool(raw.get("amp", True)), optimizer=str(raw.get("optimizer", "SGD")), lr0=float(raw.get("lr0", 0.01)),
         seed=int(raw.get("seed", 17)), fraction=float(raw.get("fraction", 1.0)),
-        warmup_iterations=int(raw.get("warmup_iterations", 20)), iterations=int(raw.get("iterations", 100)),
         train_options=train_options,
         source_images=source_images, source_labels=source_labels,
         classes=classes, dataset_name=raw.get("dataset_name"), validation_fraction=validation_fraction,
         link_files=link_files,
         save_period=save_period, plots=raw.get("plots", True), deterministic=raw.get("deterministic", True),
         run_tag=run_tag,
-        conf=float(raw.get("conf", 0.25)), iou=float(raw.get("iou", 0.7)),
     )

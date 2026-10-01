@@ -32,11 +32,6 @@ def validate_yolo_dataset(root: str | Path, splits: tuple[str, ...] = ("train201
     return counts
 
 
-def list_images(root: str | Path, split: str = "val2017") -> list[Path]:
-    directory = Path(root) / "images" / split
-    return sorted(path for path in directory.iterdir() if path.suffix.lower() in IMAGE_EXTENSIONS)
-
-
 def _resolve_config_path(value: str | Path, config_dir: Path) -> Path:
     path = Path(value).expanduser()
     return (path if path.is_absolute() else config_dir / path).resolve()

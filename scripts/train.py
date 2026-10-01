@@ -10,10 +10,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from detector_benchmark.artifacts import git_commit, run_name, write_json
-from detector_benchmark.benchmarking import environment_record
 from detector_benchmark.config import load_config
 from detector_benchmark.datasets import prepare_yolo_dataset
-from detector_benchmark.hardware import require_gpu
+from detector_benchmark.hardware import environment_record, require_gpu
 from detector_benchmark.reporting import write_summary
 from detector_benchmark.training import train
 
@@ -54,7 +53,7 @@ def main() -> int:
         write_json(run_dir / "config.json", {**config.to_dict(), "git_commit": git_commit(), "device_used": device})
         metrics = train(config, run_dir, device)
         write_json(run_dir / "results.json", metrics)
-        write_summary(run_dir / "benchmark_summary.md", {**metrics, "hardware": env["devices"], "torch_version": env["torch_version"], "hip_version": env["hip_version"], "dataset": str(config.dataset_yaml)})
+        write_summary(run_dir / "training_summary.md", {**metrics, "hardware": env["devices"], "torch_version": env["torch_version"], "hip_version": env["hip_version"], "dataset": str(config.dataset_yaml)})
         print(f"Training complete: {run_dir}")
         return 0
     except Exception as exc:
@@ -63,7 +62,7 @@ def main() -> int:
                       "batch": config.batch, "imgsz": config.imgsz, "epochs": config.epochs,
                       "dataset_yaml": str(config.dataset_yaml)}
             write_json(run_dir / "results.json", failed)
-            write_summary(run_dir / "benchmark_summary.md", failed)
+            write_summary(run_dir / "training_summary.md", failed)
         print(f"Training failed: {exc}", file=sys.stderr)
         return 1
 
