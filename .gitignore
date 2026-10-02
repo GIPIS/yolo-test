@@ -8,6 +8,7 @@ __pycache__/
 runs/**
 !runs/.gitkeep
 datasets/
+*.log
 *.pt
 *.onnx
 diff.diff
